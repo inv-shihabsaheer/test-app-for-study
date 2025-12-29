@@ -2,7 +2,7 @@ pipeline {
   agent any
 
   environment {
-    PROJECT_ID = "my-gcp-project"
+    PROJECT_ID = "curser-project"
     REGION     = "us-central1"
     AR_REPO    = "my-artifact-repo"
     IMAGE_NAME = "myapp"
@@ -10,7 +10,7 @@ pipeline {
     CLUSTER = "my-gke-cluster"
     ZONE    = "us-central1-a"
 
-    HELM_REPO_URL = "https://github.com/my-org/myapp-helm-repo.git"
+    HELM_REPO_URL = "https://github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git"
   }
 
   stages {
