@@ -2,13 +2,16 @@ pipeline {
   agent any
 
   environment {
+    // GCP & Artifact Registry
     PROJECT_ID = "curser-project"
     REGION     = "us-central1"
     AR_REPO    = "my-artifact-repo"
     IMAGE_NAME = "myapp"
 
+    // GKE
     CLUSTER = "my-gke-cluster"
 
+    // Helm repo
     HELM_REPO_URL = "https://github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git"
   }
 
@@ -45,14 +48,15 @@ pipeline {
           ]) {
             sh """
               set -e
+
               echo "Authenticating to GCP..."
-              gcloud auth activate-service-account --key-file=\$GCP_KEY_FILE
+              gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
               gcloud config set project ${PROJECT_ID}
 
-              echo "Configuring Docker for Artifact Registry..."
+              echo "Configuring Docker auth for Artifact Registry..."
               gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
 
-              echo "Building Docker image..."
+              echo "Building Docker image: ${IMAGE_URI}"
               docker build -t ${IMAGE_URI} .
 
               echo "Pushing Docker image..."
@@ -70,11 +74,12 @@ pipeline {
         ]) {
           sh """
             set -e
+
             echo "Authenticating to GCP..."
-            gcloud auth activate-service-account --key-file=\$GCP_KEY_FILE
+            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
             gcloud config set project ${PROJECT_ID}
 
-            echo "Fetching Helm repo..."
+            echo "Cloning Helm repo..."
             rm -rf helm-repo
             git clone ${HELM_REPO_URL} helm-repo
 
