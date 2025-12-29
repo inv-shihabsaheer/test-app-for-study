@@ -62,12 +62,6 @@ pipeline {
     }
 
     stage('Deploy using Helm') {
-      agent {
-        dockerContainer {
-          image 'google/cloud-sdk:latest'
-        }
-      }
-
       steps {
         withCredentials([
           file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
