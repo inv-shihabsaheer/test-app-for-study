@@ -21,7 +21,11 @@ pipeline {
     stage('Generate Image Tag') {
       steps {
         script {
-          def sha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+          def sha = sh(
+            script: 'git rev-parse --short HEAD',
+            returnStdout: true
+          ).trim()
+
           env.IMAGE_TAG = "${sha}-${env.BUILD_NUMBER}"
           echo "Image tag: ${env.IMAGE_TAG}"
         }
@@ -39,11 +43,17 @@ pipeline {
           ]) {
             sh """
               set -e
+              echo "Authenticating to GCP..."
               gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
               gcloud config set project ${PROJECT_ID}
+
+              echo "Configuring Docker auth..."
               gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
 
+              echo "Building image..."
               docker build -t ${IMAGE_URI} .
+
+              echo "Pushing image..."
               docker push ${IMAGE_URI}
             """
           }
@@ -53,9 +63,8 @@ pipeline {
 
     stage('Deploy using Helm') {
       agent {
-        docker {
+        dockerContainer {
           image 'google/cloud-sdk:latest'
-          args '-v /var/run/docker.sock:/var/run/docker.sock'
         }
       }
 
