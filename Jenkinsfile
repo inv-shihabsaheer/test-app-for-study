@@ -1,5 +1,11 @@
 pipeline {
-  agent any
+
+  agent {
+    docker {
+      image 'google/cloud-sdk:latest'
+      args '-v /var/run/docker.sock:/var/run/docker.sock'
+    }
+  }
 
   environment {
     // GCP & Artifact Registry
@@ -37,6 +43,19 @@ pipeline {
       }
     }
 
+    stage('Install Helm') {
+      steps {
+        sh '''
+          if ! command -v helm >/dev/null 2>&1; then
+            echo "Installing Helm..."
+            curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          else
+            echo "Helm already installed"
+          fi
+        '''
+      }
+    }
+
     stage('Build & Push Image') {
       steps {
         script {
@@ -53,10 +72,10 @@ pipeline {
               gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
               gcloud config set project ${PROJECT_ID}
 
-              echo "Configuring Docker auth for Artifact Registry..."
+              echo "Configuring Docker for Artifact Registry..."
               gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
 
-              echo "Building Docker image: ${IMAGE_URI}"
+              echo "Building Docker image..."
               docker build -t ${IMAGE_URI} .
 
               echo "Pushing Docker image..."
@@ -67,7 +86,7 @@ pipeline {
       }
     }
 
-    stage('Deploy using Helm Repo') {
+    stage('Deploy using Helm') {
       steps {
         withCredentials([
           file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
