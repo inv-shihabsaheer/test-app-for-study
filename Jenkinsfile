@@ -37,18 +37,21 @@ pipeline {
     stage('Build & Push Image') {
       steps {
         script {
-          IMAGE_URI = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
-
-          sh """
-            gcloud auth activate-service-account --key-file=$GCP_SA_KEY
-            gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
-
-            docker build -t ${IMAGE_URI} .
-            docker push ${IMAGE_URI}
-          """
+          def IMAGE_URI = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
+    
+          withCredentials([file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')]) {
+            sh """
+              gcloud auth activate-service-account --key-file=$GCP_KEY_FILE
+              gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
+    
+              docker build -t ${IMAGE_URI} .
+              docker push ${IMAGE_URI}
+            """
+          }
         }
       }
     }
+
 
     stage('Deploy using Helm Repo') {
       steps {
