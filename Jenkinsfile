@@ -1,11 +1,5 @@
 pipeline {
-
-  agent {
-    dockerContainer {
-      image 'google/cloud-sdk:latest'
-      args '-v /var/run/docker.sock:/var/run/docker.sock'
-    }
-  }
+  agent any
 
   environment {
     // GCP & Artifact Registry
@@ -40,19 +34,6 @@ pipeline {
           env.IMAGE_TAG = "${GIT_SHA}-${env.BUILD_NUMBER}"
           echo "Image tag: ${env.IMAGE_TAG}"
         }
-      }
-    }
-
-    stage('Install Helm') {
-      steps {
-        sh '''
-          if ! command -v helm >/dev/null 2>&1; then
-            echo "Installing Helm..."
-            curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          else
-            echo "Helm already installed"
-          fi
-        '''
       }
     }
 
