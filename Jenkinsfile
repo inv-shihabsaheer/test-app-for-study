@@ -10,6 +10,7 @@ pipeline {
     HELM_REPO_URL = "https://github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git"
 
     PATH = "${env.PATH}:${env.HOME}/bin"
+    USE_GKE_GCLOUD_AUTH_PLUGIN = "True"
   }
 
   stages {
@@ -27,7 +28,6 @@ pipeline {
             script: 'git rev-parse --short HEAD',
             returnStdout: true
           ).trim()
-
           env.IMAGE_TAG = "${GIT_SHA}-${env.BUILD_NUMBER}"
           echo "Image tag: ${env.IMAGE_TAG}"
         }
@@ -43,22 +43,15 @@ pipeline {
           withCredentials([
             file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
           ]) {
-            sh '''
+            sh """
               set -e
+              gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
+              gcloud config set project ${PROJECT_ID}
+              gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
 
-              echo "Authenticating to GCP..."
-              gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-              gcloud config set project "$PROJECT_ID"
-
-              echo "Configuring Docker for Artifact Registry..."
-              gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
-
-              echo "Building Docker image..."
-              docker build -t $IMAGE_URI .
-
-              echo "Pushing Docker image..."
-              docker push $IMAGE_URI
-            '''
+              docker build -t ${IMAGE_URI} .
+              docker push ${IMAGE_URI}
+            """
           }
         }
       }
@@ -69,47 +62,49 @@ pipeline {
         withCredentials([
           file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
         ]) {
-          sh '''
+          sh """
             set -e
 
-            mkdir -p "$HOME/bin"
-            export PATH="$HOME/bin:$PATH"
+            mkdir -p \$HOME/bin
 
-            echo "Installing kubectl (user-local)..."
+            echo "Installing kubectl..."
             if ! command -v kubectl >/dev/null 2>&1; then
-              curl -LO https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+              curl -LO https://dl.k8s.io/release/\$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
               chmod +x kubectl
-              mv kubectl "$HOME/bin/"
+              mv kubectl \$HOME/bin/
             fi
 
-            echo "Installing Helm (user-local, no sudo)..."
+            echo "Installing gke-gcloud-auth-plugin..."
+            if ! command -v gke-gcloud-auth-plugin >/dev/null 2>&1; then
+              curl -LO https://github.com/GoogleCloudPlatform/cloud-sdk-gke-gcloud-auth-plugin/releases/latest/download/gke-gcloud-auth-plugin-linux-amd64
+              chmod +x gke-gcloud-auth-plugin-linux-amd64
+              mv gke-gcloud-auth-plugin-linux-amd64 \$HOME/bin/gke-gcloud-auth-plugin
+            fi
+
+            echo "Installing Helm..."
             if ! command -v helm >/dev/null 2>&1; then
-              HELM_VERSION="v3.19.4"
-              curl -LO https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz
-              tar -zxvf helm-${HELM_VERSION}-linux-amd64.tar.gz
+              HELM_VERSION=v3.19.4
+              curl -LO https://get.helm.sh/helm-\${HELM_VERSION}-linux-amd64.tar.gz
+              tar -zxvf helm-\${HELM_VERSION}-linux-amd64.tar.gz
               chmod +x linux-amd64/helm
-              mv linux-amd64/helm "$HOME/bin/helm"
-              rm -rf linux-amd64 helm-${HELM_VERSION}-linux-amd64.tar.gz
+              mv linux-amd64/helm \$HOME/bin/helm
+              rm -rf linux-amd64 helm-\${HELM_VERSION}-linux-amd64.tar.gz
             fi
 
-            echo "Authenticating to GCP..."
-            gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-            gcloud config set project "$PROJECT_ID"
+            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
+            gcloud config set project ${PROJECT_ID}
 
-            echo "Cloning Helm repo..."
             rm -rf helm-repo
-            git clone "$HELM_REPO_URL" helm-repo
+            git clone ${HELM_REPO_URL} helm-repo
 
-            echo "Getting GKE credentials..."
-            gcloud container clusters get-credentials "$CLUSTER" \
-              --region "$REGION" \
-              --project "$PROJECT_ID"
+            gcloud container clusters get-credentials ${CLUSTER} \
+              --region ${REGION} \
+              --project ${PROJECT_ID}
 
-            echo "Deploying application with Helm..."
             helm upgrade --install myapp helm-repo/myapp \
-              --set image.repository=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$IMAGE_NAME \
-              --set image.tag=$IMAGE_TAG
-          '''
+              --set image.repository=${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME} \
+              --set image.tag=${IMAGE_TAG}
+          """
         }
       }
     }
