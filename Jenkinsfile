@@ -41,7 +41,7 @@ pipeline {
           env.IMAGE_URI = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${env.IMAGE_TAG}"
 
           withCredentials([
-            file(credentialsId: 'gcp-sa-key', variable: 'GCP_KEY_FILE')
+            file(credentialsId: 'GCP-SA-KEY', variable: 'GCP_KEY_FILE')
           ]) {
             sh '''
               set -e
