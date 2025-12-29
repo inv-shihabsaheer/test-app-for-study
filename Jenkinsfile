@@ -9,7 +9,7 @@ pipeline {
     CLUSTER       = "my-gke-cluster"
     HELM_REPO_URL = "https://github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git"
 
-    PATH = "${env.PATH}:${env.HOME}/bin"
+    PATH = "${PATH}:${HOME}/bin"
     USE_GKE_GCLOUD_AUTH_PLUGIN = "True"
   }
 
@@ -66,29 +66,43 @@ pipeline {
             set -e
 
             mkdir -p \$HOME/bin
+            export PATH=\$HOME/bin:\$PATH
+            export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+
+            ARCH=\$(uname -m)
+            echo "Detected architecture: \$ARCH"
+
+            if [ "\$ARCH" = "x86_64" ]; then
+              ARCH_DL="amd64"
+            elif [ "\$ARCH" = "aarch64" ] || [ "\$ARCH" = "arm64" ]; then
+              ARCH_DL="arm64"
+            else
+              echo "Unsupported architecture: \$ARCH"
+              exit 1
+            fi
 
             echo "Installing kubectl..."
             if ! command -v kubectl >/dev/null 2>&1; then
-              curl -LO https://dl.k8s.io/release/\$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+              curl -LO https://dl.k8s.io/release/\$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/\$ARCH_DL/kubectl
               chmod +x kubectl
               mv kubectl \$HOME/bin/
             fi
 
             echo "Installing gke-gcloud-auth-plugin..."
             if ! command -v gke-gcloud-auth-plugin >/dev/null 2>&1; then
-              curl -LO https://github.com/GoogleCloudPlatform/cloud-sdk-gke-gcloud-auth-plugin/releases/latest/download/gke-gcloud-auth-plugin-linux-amd64
-              chmod +x gke-gcloud-auth-plugin-linux-amd64
-              mv gke-gcloud-auth-plugin-linux-amd64 \$HOME/bin/gke-gcloud-auth-plugin
+              curl -LO https://github.com/GoogleCloudPlatform/cloud-sdk-gke-gcloud-auth-plugin/releases/latest/download/gke-gcloud-auth-plugin-linux-\$ARCH_DL
+              chmod +x gke-gcloud-auth-plugin-linux-\$ARCH_DL
+              mv gke-gcloud-auth-plugin-linux-\$ARCH_DL \$HOME/bin/gke-gcloud-auth-plugin
             fi
 
             echo "Installing Helm..."
             if ! command -v helm >/dev/null 2>&1; then
               HELM_VERSION=v3.19.4
-              curl -LO https://get.helm.sh/helm-\${HELM_VERSION}-linux-amd64.tar.gz
-              tar -zxvf helm-\${HELM_VERSION}-linux-amd64.tar.gz
-              chmod +x linux-amd64/helm
-              mv linux-amd64/helm \$HOME/bin/helm
-              rm -rf linux-amd64 helm-\${HELM_VERSION}-linux-amd64.tar.gz
+              curl -LO https://get.helm.sh/helm-\${HELM_VERSION}-linux-\$ARCH_DL.tar.gz
+              tar -zxvf helm-\${HELM_VERSION}-linux-\$ARCH_DL.tar.gz
+              chmod +x linux-\$ARCH_DL/helm
+              mv linux-\$ARCH_DL/helm \$HOME/bin/helm
+              rm -rf linux-\$ARCH_DL helm-\${HELM_VERSION}-linux-\$ARCH_DL.tar.gz
             fi
 
             gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
