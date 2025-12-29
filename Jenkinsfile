@@ -63,28 +63,33 @@ pipeline {
         }
       }
     }
-
+    
     stage('Deploy using Helm Repo') {
       steps {
         withCredentials([
-          file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
+          file(credentialsId: 'gcp-sa-key', variable: 'GCP_KEY_FILE')
         ]) {
           sh '''
             set -e
-
+    
             echo "Authenticating to GCP..."
             gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
             gcloud config set project "$PROJECT_ID"
-
+    
+            echo "Ensuring kubectl is available..."
+            if ! command -v kubectl >/dev/null 2>&1; then
+              gcloud components install kubectl --quiet
+            fi
+    
             echo "Fetching Helm repo..."
             rm -rf helm-repo
             git clone "$HELM_REPO_URL" helm-repo
-
-            echo "Getting GKE credentials..."
+    
+            echo "Getting GKE credentials (regional cluster)..."
             gcloud container clusters get-credentials "$CLUSTER" \
-              --zone "$ZONE" \
+              --region "$REGION" \
               --project "$PROJECT_ID"
-
+    
             echo "Deploying application with Helm..."
             helm upgrade --install myapp helm-repo/myapp \
               --set image.repository=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$IMAGE_NAME \
@@ -93,7 +98,6 @@ pipeline {
         }
       }
     }
-  }
 
   post {
     success {
