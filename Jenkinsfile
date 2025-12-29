@@ -55,7 +55,7 @@ pipeline {
               gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
 
               echo "Building image..."
-              docker build -t ${IMAGE_URI} .
+              docker build --no-cache -t ${IMAGE_URI} .
 
               echo "Pushing image..."
               docker push ${IMAGE_URI}
