@@ -65,7 +65,7 @@ pipeline {
       }
     }
 
-    stage('Update Helm Repo Image Tag') {
+    stage('Update Helm Repo Image Tag (GitOps)') {
       steps {
         withCredentials([
           string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')
@@ -117,8 +117,10 @@ pipeline {
               --region ${REGION} \
               --project ${PROJECT_ID}
 
-            echo "Deploying using Helm (GitOps source of truth)..."
-            helm upgrade --install myapp ${HELM_REPO_DIR}/${HELM_CHART}
+            echo "Deploying using Helm with explicit image tag..."
+            helm upgrade --install myapp ${HELM_REPO_DIR}/${HELM_CHART} \
+              --set image.repository=${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME} \
+              --set image.tag=${IMAGE_TAG}
           """
         }
       }
