@@ -2,12 +2,15 @@ pipeline {
   agent any
 
   environment {
-    PROJECT_ID = "curser-project"
-    REGION     = "us-central1"
-    AR_REPO    = "my-artifact-repo"
-    IMAGE_NAME = "myapp"
-    CLUSTER    = "my-gke-cluster"
+    PROJECT_ID    = "curser-project"
+    REGION        = "us-central1"
+    AR_REPO       = "my-artifact-repo"
+    IMAGE_NAME    = "myapp"
+    CLUSTER       = "my-gke-cluster"
+
     HELM_REPO_URL = "https://github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git"
+    HELM_REPO_DIR = "helm-repo"
+    HELM_CHART    = "myapp"
   }
 
   stages {
@@ -43,6 +46,7 @@ pipeline {
           ]) {
             sh """
               set -e
+
               echo "Authenticating to GCP..."
               gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
               gcloud config set project ${PROJECT_ID}
@@ -57,6 +61,41 @@ pipeline {
               docker push ${IMAGE_URI}
             """
           }
+        }
+      }
+    }
+
+    stage('Update Helm Repo Image Tag') {
+      steps {
+        withCredentials([
+          string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')
+        ]) {
+          sh """
+            set -e
+
+            echo "Cloning Helm repo..."
+            rm -rf ${HELM_REPO_DIR}
+            git clone https://x-access-token:\$GITHUB_TOKEN@github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git ${HELM_REPO_DIR}
+
+            cd ${HELM_REPO_DIR}/${HELM_CHART}
+
+            echo "Updating values.yaml..."
+            sed -i 's|^  repository:.*|  repository: ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}|' values.yaml
+            sed -i 's|^  tag:.*|  tag: ${IMAGE_TAG}|' values.yaml
+
+            git config user.name "Jenkins CI"
+            git config user.email "jenkins@ci.local"
+
+            git add values.yaml
+
+            if git diff --cached --quiet; then
+              echo "No changes to commit"
+              exit 0
+            fi
+
+            git commit -m "ci: update image tag to ${IMAGE_TAG}"
+            git push origin main
+          """
         }
       }
     }
@@ -78,14 +117,8 @@ pipeline {
               --region ${REGION} \
               --project ${PROJECT_ID}
 
-            echo "Cloning Helm repo..."
-            rm -rf helm-repo
-            git clone ${HELM_REPO_URL} helm-repo
-
-            echo "Deploying with Helm..."
-            helm upgrade --install myapp helm-repo/myapp \
-              --set image.repository=${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME} \
-              --set image.tag=${IMAGE_TAG}
+            echo "Deploying using Helm (GitOps source of truth)..."
+            helm upgrade --install myapp ${HELM_REPO_DIR}/${HELM_CHART}
           """
         }
       }
