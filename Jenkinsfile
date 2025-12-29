@@ -67,7 +67,7 @@ pipeline {
     stage('Deploy using Helm Repo') {
       steps {
         withCredentials([
-          file(credentialsId: 'gcp-sa-key', variable: 'GCP_KEY_FILE')
+          file(credentialsId: 'GCP-SA-KEY', variable: 'GCP_KEY_FILE')
         ]) {
           sh '''
             set -e
