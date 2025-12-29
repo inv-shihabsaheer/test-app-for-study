@@ -6,9 +6,7 @@ pipeline {
     REGION     = "us-central1"
     AR_REPO    = "my-artifact-repo"
     IMAGE_NAME = "myapp"
-
-    CLUSTER = "my-gke-cluster"
-
+    CLUSTER    = "my-gke-cluster"
     HELM_REPO_URL = "https://github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git"
   }
 
@@ -23,12 +21,8 @@ pipeline {
     stage('Generate Image Tag') {
       steps {
         script {
-          def GIT_SHA = sh(
-            script: 'git rev-parse --short HEAD',
-            returnStdout: true
-          ).trim()
-
-          env.IMAGE_TAG = "${GIT_SHA}-${env.BUILD_NUMBER}"
+          def sha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+          env.IMAGE_TAG = "${sha}-${env.BUILD_NUMBER}"
           echo "Image tag: ${env.IMAGE_TAG}"
         }
       }
@@ -37,58 +31,59 @@ pipeline {
     stage('Build & Push Image') {
       steps {
         script {
-          env.IMAGE_URI = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${env.IMAGE_TAG}"
+          env.IMAGE_URI =
+            "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${env.IMAGE_TAG}"
 
           withCredentials([
             file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
           ]) {
-            sh '''
+            sh """
               set -e
+              gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
+              gcloud config set project ${PROJECT_ID}
+              gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
 
-              echo "Authenticating to GCP..."
-              gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-              gcloud config set project "$PROJECT_ID"
-
-              echo "Configuring Docker auth for Artifact Registry..."
-              gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
-
-              echo "Building Docker image: $IMAGE_URI"
-              docker build -t $IMAGE_URI .
-
-              echo "Pushing Docker image..."
-              docker push $IMAGE_URI
-            '''
+              docker build -t ${IMAGE_URI} .
+              docker push ${IMAGE_URI}
+            """
           }
         }
       }
     }
 
-    stage('Deploy using Helm Repo') {
+    stage('Deploy using Helm') {
+      agent {
+        docker {
+          image 'google/cloud-sdk:latest'
+          args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+      }
+
       steps {
         withCredentials([
           file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
         ]) {
-          sh '''
+          sh """
             set -e
 
             echo "Authenticating to GCP..."
-            gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-            gcloud config set project "$PROJECT_ID"
-
-            echo "Fetching Helm repo..."
-            rm -rf helm-repo
-            git clone "$HELM_REPO_URL" helm-repo
+            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
+            gcloud config set project ${PROJECT_ID}
 
             echo "Getting GKE credentials..."
-            gcloud container clusters get-credentials "$CLUSTER" \
-              --region "$REGION" \
-              --project "$PROJECT_ID"
+            gcloud container clusters get-credentials ${CLUSTER} \
+              --region ${REGION} \
+              --project ${PROJECT_ID}
 
-            echo "Deploying application with Helm..."
+            echo "Cloning Helm repo..."
+            rm -rf helm-repo
+            git clone ${HELM_REPO_URL} helm-repo
+
+            echo "Deploying with Helm..."
             helm upgrade --install myapp helm-repo/myapp \
-              --set image.repository=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$IMAGE_NAME \
-              --set image.tag=$IMAGE_TAG
-          '''
+              --set image.repository=${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME} \
+              --set image.tag=${IMAGE_TAG}
+          """
         }
       }
     }
