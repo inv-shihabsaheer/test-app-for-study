@@ -8,7 +8,7 @@ pipeline {
     IMAGE_NAME = "myapp"
 
     CLUSTER = "my-gke-cluster"
-    ZONE    = "us-central1-a"
+    REGION = "us-central1"
 
     HELM_REPO_URL = "https://github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git"
   }
@@ -82,7 +82,7 @@ pipeline {
 
             echo "Getting GKE credentials..."
             gcloud container clusters get-credentials "$CLUSTER" \
-              --zone "$ZONE" \
+              --region "$REGION" \
               --project "$PROJECT_ID"
 
             echo "Deploying application with Helm..."
