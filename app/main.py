@@ -2,7 +2,7 @@ import os
 import socket
 import logging
 from datetime import datetime
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 
 app = Flask(__name__)
 
@@ -18,21 +18,24 @@ logging.basicConfig(
 
 @app.route("/")
 def home():
-    return jsonify({
-        "message": "GitHub → Jenkins → Helm → GKE",
-        "app": APP_NAME,
-        "env": APP_ENV,
-        "version": APP_VERSION,
-        "pod": HOSTNAME,
-        "timestamp": datetime.utcnow().isoformat() + "Z"
-    })
+    return render_template(
+        "index.html",
+        app_name=APP_NAME,
+        env=APP_ENV,
+        version=APP_VERSION,
+        pod=HOSTNAME,
+        timestamp=datetime.utcnow().isoformat() + "Z"
+    )
 
 @app.route("/api/echo", methods=["POST"])
 def echo():
     payload = request.get_json(silent=True)
     if not payload:
         return jsonify({"error": "Invalid JSON"}), 400
-    return jsonify({"received": payload, "pod": HOSTNAME})
+    return jsonify({
+        "received": payload,
+        "pod": HOSTNAME
+    })
 
 @app.route("/healthz")
 def health():
