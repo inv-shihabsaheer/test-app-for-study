@@ -8,7 +8,6 @@ pipeline {
     IMAGE_NAME = "myapp"
 
     CLUSTER = "my-gke-cluster"
-    REGION = "us-central1"
 
     HELM_REPO_URL = "https://github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git"
   }
