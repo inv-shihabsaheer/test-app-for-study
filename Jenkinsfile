@@ -29,9 +29,7 @@ pipeline {
             returnStdout: true
           ).trim()
 
-          def IMAGE_TAG = "${GIT_SHA}-${env.BUILD_NUMBER}"
-          env.IMAGE_TAG = IMAGE_TAG
-
+          env.IMAGE_TAG = "${GIT_SHA}-${env.BUILD_NUMBER}"
           echo "Image tag: ${env.IMAGE_TAG}"
         }
       }
@@ -40,10 +38,10 @@ pipeline {
     stage('Build & Push Image') {
       steps {
         script {
-          def IMAGE_URI = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${env.IMAGE_TAG}"
+          env.IMAGE_URI = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${env.IMAGE_TAG}"
 
           withCredentials([
-            file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
+            file(credentialsId: 'gcp-sa-key', variable: 'GCP_KEY_FILE')
           ]) {
             sh '''
               set -e
@@ -53,13 +51,13 @@ pipeline {
               gcloud config set project "$PROJECT_ID"
 
               echo "Configuring Docker auth for Artifact Registry..."
-              gcloud auth configure-docker '"${REGION}"'-docker.pkg.dev --quiet
+              gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
 
-              echo "Building Docker image..."
-              docker build -t '"${IMAGE_URI}"' .
+              echo "Building Docker image: $IMAGE_URI"
+              docker build -t $IMAGE_URI .
 
               echo "Pushing Docker image..."
-              docker push '"${IMAGE_URI}"'
+              docker push $IMAGE_URI
             '''
           }
         }
@@ -89,8 +87,8 @@ pipeline {
 
             echo "Deploying application with Helm..."
             helm upgrade --install myapp helm-repo/myapp \
-              --set image.repository='"${REGION}"'-docker.pkg.dev/'"${PROJECT_ID}"'/'"${AR_REPO}"'/'"${IMAGE_NAME}"' \
-              --set image.tag='"${IMAGE_TAG}"'
+              --set image.repository=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$IMAGE_NAME \
+              --set image.tag=$IMAGE_TAG
           '''
         }
       }
