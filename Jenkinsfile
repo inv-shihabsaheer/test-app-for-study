@@ -2,12 +2,14 @@ pipeline {
   agent any
 
   environment {
-    PROJECT_ID   = "curser-project"
-    REGION       = "us-central1"
-    AR_REPO      = "my-artifact-repo"
-    IMAGE_NAME   = "myapp"
-    CLUSTER      = "my-gke-cluster"
+    PROJECT_ID    = "curser-project"
+    REGION        = "us-central1"
+    AR_REPO       = "my-artifact-repo"
+    IMAGE_NAME    = "myapp"
+    CLUSTER       = "my-gke-cluster"
     HELM_REPO_URL = "https://github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git"
+
+    PATH = "${env.PATH}:${env.HOME}/bin"
   }
 
   stages {
@@ -70,24 +72,23 @@ pipeline {
           sh """
             set -e
 
-            echo "Authenticating to GCP..."
-            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
-            gcloud config set project ${PROJECT_ID}
+            mkdir -p \$HOME/bin
 
-            echo "Ensuring kubectl is installed..."
+            echo "Installing kubectl (user-local)..."
             if ! command -v kubectl >/dev/null 2>&1; then
-              gcloud components install kubectl --quiet
+              curl -LO https://dl.k8s.io/release/\$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+              chmod +x kubectl
+              mv kubectl \$HOME/bin/
             fi
 
-            echo "Ensuring GKE auth plugin is installed..."
-            if ! command -v gke-gcloud-auth-plugin >/dev/null 2>&1; then
-              gcloud components install gke-gcloud-auth-plugin --quiet
-            fi
-
-            echo "Ensuring Helm is installed..."
+            echo "Installing Helm (user-local)..."
             if ! command -v helm >/dev/null 2>&1; then
               curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
             fi
+
+            echo "Authenticating to GCP..."
+            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
+            gcloud config set project ${PROJECT_ID}
 
             echo "Cloning Helm repo..."
             rm -rf helm-repo
