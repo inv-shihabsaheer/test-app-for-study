@@ -2,16 +2,11 @@ pipeline {
   agent any
 
   environment {
-    // GCP & Artifact Registry
     PROJECT_ID = "curser-project"
     REGION     = "us-central1"
     AR_REPO    = "my-artifact-repo"
     IMAGE_NAME = "myapp"
-
-    // GKE
-    CLUSTER = "my-gke-cluster"
-
-    // Helm repo
+    CLUSTER    = "my-gke-cluster"
     HELM_REPO_URL = "https://github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git"
   }
 
@@ -46,22 +41,22 @@ pipeline {
           withCredentials([
             file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
           ]) {
-            sh """
+            sh '''
               set -e
 
               echo "Authenticating to GCP..."
-              gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
-              gcloud config set project ${PROJECT_ID}
+              gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
+              gcloud config set project "$PROJECT_ID"
 
               echo "Configuring Docker for Artifact Registry..."
-              gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
+              gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
 
               echo "Building Docker image..."
-              docker build -t ${IMAGE_URI} .
+              docker build -t $IMAGE_URI .
 
               echo "Pushing Docker image..."
-              docker push ${IMAGE_URI}
-            """
+              docker push $IMAGE_URI
+            '''
           }
         }
       }
@@ -72,27 +67,42 @@ pipeline {
         withCredentials([
           file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
         ]) {
-          sh """
+          sh '''
             set -e
 
             echo "Authenticating to GCP..."
-            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
-            gcloud config set project ${PROJECT_ID}
+            gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
+            gcloud config set project "$PROJECT_ID"
+
+            echo "Installing kubectl if missing..."
+            if ! command -v kubectl >/dev/null 2>&1; then
+              gcloud components install kubectl --quiet
+            fi
+
+            echo "Installing GKE auth plugin if missing..."
+            if ! command -v gke-gcloud-auth-plugin >/dev/null 2>&1; then
+              gcloud components install gke-gcloud-auth-plugin --quiet
+            fi
+
+            echo "Installing Helm if missing..."
+            if ! command -v helm >/dev/null 2>&1; then
+              curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+            fi
 
             echo "Cloning Helm repo..."
             rm -rf helm-repo
-            git clone ${HELM_REPO_URL} helm-repo
+            git clone "$HELM_REPO_URL" helm-repo
 
             echo "Getting GKE credentials..."
-            gcloud container clusters get-credentials ${CLUSTER} \
-              --region ${REGION} \
-              --project ${PROJECT_ID}
+            gcloud container clusters get-credentials "$CLUSTER" \
+              --region "$REGION" \
+              --project "$PROJECT_ID"
 
             echo "Deploying application with Helm..."
             helm upgrade --install myapp helm-repo/myapp \
-              --set image.repository=${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME} \
-              --set image.tag=${IMAGE_TAG}
-          """
+              --set image.repository=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$IMAGE_NAME \
+              --set image.tag=$IMAGE_TAG
+          '''
         }
       }
     }
