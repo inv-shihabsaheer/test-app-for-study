@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{ app_name }} | Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            neon: '#38bdf8'
+          },
+          boxShadow: {
+            neon: '0 0 20px rgba(56,189,248,0.7)'
+          }
+        }
+      }
+    }
+  </script>
+</head>
+
+<body class="bg-gradient-to-br from-slate-900 via-black to-slate-900 text-white min-h-screen p-6">
+
+  <!-- HEADER -->
+  <div class="flex justify-between items-center mb-6">
+    <div>
+      <h1 class="text-3xl font-bold text-neon drop-shadow-neon">
+        🚀 {{ app_name }}
+      </h1>
+      <p class="text-slate-400">
+        GitHub → Jenkins → Helm → GKE
+      </p>
+    </div>
+
+    <button id="themeToggle"
+      class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700">
+      🌗 Toggle Theme
+    </button>
+  </div>
+
+  <!-- INFO CARDS -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-slate-900/70 p-4 rounded-xl shadow-neon">
+      <p class="text-slate-400 text-sm">Environment</p>
+      <p class="text-xl font-semibold">{{ env }}</p>
+    </div>
+
+    <div class="bg-slate-900/70 p-4 rounded-xl shadow-neon">
+      <p class="text-slate-400 text-sm">Version</p>
+      <p class="text-xl font-semibold">{{ version }}</p>
+    </div>
+
+    <div class="bg-slate-900/70 p-4 rounded-xl shadow-neon">
+      <p class="text-slate-400 text-sm">Pod</p>
+      <p class="text-sm break-all">{{ pod }}</p>
+    </div>
+
+    <div class="bg-slate-900/70 p-4 rounded-xl shadow-neon">
+      <p class="text-slate-400 text-sm">Auto Refresh</p>
+      <p class="text-xl font-semibold">
+        <span id="refresh">5</span>s
+      </p>
+    </div>
+  </div>
+
+  <!-- HEALTH -->
+  <div class="bg-slate-900/70 p-4 rounded-xl mb-6 shadow-neon">
+    <h2 class="text-xl font-bold mb-4">📊 Health Checks</h2>
+    <div class="flex gap-4">
+      <span id="healthz" class="px-4 py-2 rounded-full bg-slate-700">/healthz</span>
+      <span id="readyz" class="px-4 py-2 rounded-full bg-slate-700">/readyz</span>
+    </div>
+  </div>
+
+  <!-- ECHO TESTER -->
+  <div class="bg-slate-900/70 p-4 rounded-xl shadow-neon">
+    <h2 class="text-xl font-bold mb-4">🧪 Echo Tester</h2>
+
+    <textarea id="echoInput"
+      class="w-full p-3 rounded bg-black border border-slate-700 mb-3 text-sm"
+      rows="4"
+      placeholder='{"hello":"world"}'></textarea>
+
+    <button id="sendEcho"
+      class="px-6 py-2 bg-neon text-black rounded-lg font-semibold">
+      Send
+    </button>
+
+    <pre id="echoOutput"
+      class="mt-4 p-3 bg-black rounded text-xs hidden"></pre>
+  </div>
+
+  <div class="text-center text-slate-500 text-sm mt-6">
+    Updated at {{ timestamp }}
+  </div>
+
+<script>
+const REFRESH_INTERVAL = 5;
+document.getElementById("refresh").textContent = REFRESH_INTERVAL;
+
+// Theme toggle
+document.getElementById("themeToggle").onclick = () => {
+  document.documentElement.classList.toggle("dark");
+};
+
+// Health checks
+async function healthCheck() {
+  try {
+    await fetch("/healthz");
+    healthz.className = "px-4 py-2 rounded-full bg-green-600";
+  } catch {
+    healthz.className = "px-4 py-2 rounded-full bg-red-600";
+  }
+
+  try {
+    await fetch("/readyz");
+    readyz.className = "px-4 py-2 rounded-full bg-green-600";
+  } catch {
+    readyz.className = "px-4 py-2 rounded-full bg-red-600";
+  }
+}
+
+// Echo tester
+sendEcho.onclick = async () => {
+  const output = echoOutput;
+  try {
+    const res = await fetch("/api/echo", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: echoInput.value
+    });
+    output.textContent = JSON.stringify(await res.json(), null, 2);
+    output.classList.remove("hidden");
+  } catch {
+    output.textContent = "Invalid JSON";
+    output.classList.remove("hidden");
+  }
+};
+
+healthCheck();
+setInterval(() => location.reload(), REFRESH_INTERVAL * 1000);
+</script>
+
+</body>
+</html>
