@@ -1,0 +1,164 @@
+pipeline {
+  agent any
+
+  /***********************
+   * PARAMETERS (SAFETY)
+   ***********************/
+  parameters {
+    booleanParam(
+      name: 'CLEAN_IMAGES',
+      defaultValue: false,
+      description: 'Delete images from Artifact Registry'
+    )
+    string(
+      name: 'CONFIRM_DESTROY',
+      defaultValue: '',
+      description: 'Type DESTROY to confirm resource cleanup'
+    )
+  }
+
+  /***********************
+   * ENVIRONMENT
+   ***********************/
+  environment {
+    PROJECT_ID   = "curser-project"
+    REGION       = "us-central1"
+    CLUSTER      = "my-gke-cluster"
+
+    RELEASE_NAME = "myapp"
+    NAMESPACE    = "default"
+
+    AR_REPO      = "my-artifact-repo"
+    IMAGE_NAME   = "myapp"
+  }
+
+  stages {
+
+    /***********************
+     * VALIDATION
+     ***********************/
+    stage('Confirm Destruction') {
+      steps {
+        script {
+          if (params.CONFIRM_DESTROY != 'DESTROY') {
+            error """
+❌ Destruction aborted.
+You must type DESTROY in the CONFIRM_DESTROY parameter.
+"""
+          }
+        }
+      }
+    }
+
+    /***********************
+     * AUTH
+     ***********************/
+    stage('Authenticate to GCP') {
+      steps {
+        withCredentials([
+          file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
+        ]) {
+          sh """
+            set -e
+            echo "Authenticating to GCP..."
+            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
+            gcloud config set project ${PROJECT_ID}
+          """
+        }
+      }
+    }
+
+    /***********************
+     * GKE ACCESS
+     ***********************/
+    stage('Get GKE Credentials') {
+      steps {
+        sh """
+          set -e
+          echo "Fetching GKE credentials..."
+          gcloud container clusters get-credentials ${CLUSTER} \
+            --region ${REGION} \
+            --project ${PROJECT_ID}
+        """
+      }
+    }
+
+    /***********************
+     * HELM CLEANUP
+     ***********************/
+    stage('Uninstall Helm Release') {
+      steps {
+        sh """
+          set +e
+          echo "Checking Helm release..."
+          helm status ${RELEASE_NAME} -n ${NAMESPACE}
+
+          if [ \$? -eq 0 ]; then
+            echo "Uninstalling Helm release ${RELEASE_NAME}..."
+            helm uninstall ${RELEASE_NAME} -n ${NAMESPACE}
+          else
+            echo "Helm release not found, skipping"
+          fi
+        """
+      }
+    }
+
+    /***********************
+     * K8S CLEANUP
+     ***********************/
+    stage('Delete Remaining Kubernetes Resources') {
+      steps {
+        sh """
+          set +e
+          echo "Cleaning leftover Kubernetes resources..."
+
+          kubectl delete deployment ${RELEASE_NAME} -n ${NAMESPACE} --ignore-not-found
+          kubectl delete service ${RELEASE_NAME} -n ${NAMESPACE} --ignore-not-found
+          kubectl delete ingress ${RELEASE_NAME} -n ${NAMESPACE} --ignore-not-found
+          kubectl delete configmap ${RELEASE_NAME} -n ${NAMESPACE} --ignore-not-found
+          kubectl delete secret ${RELEASE_NAME} -n ${NAMESPACE} --ignore-not-found
+        """
+      }
+    }
+
+    /***********************
+     * ARTIFACT REGISTRY (OPTIONAL)
+     ***********************/
+    stage('Delete Artifact Registry Images') {
+      when {
+        expression { return params.CLEAN_IMAGES }
+      }
+      steps {
+        sh """
+          set +e
+          echo "Deleting images from Artifact Registry..."
+
+          IMAGE_PATH="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}"
+
+          for DIGEST in \$(gcloud artifacts docker images list \$IMAGE_PATH \
+            --format='value(DIGEST)'); do
+            echo "Deleting image digest \$DIGEST"
+            gcloud artifacts docker images delete \
+              \$IMAGE_PATH@\$DIGEST \
+              --quiet
+          done
+        """
+      }
+    }
+  }
+
+  /***********************
+   * POST
+   ***********************/
+  post {
+    success {
+      echo "🧹 Cleanup completed successfully"
+    }
+    failure {
+      echo "❌ Cleanup failed"
+    }
+    always {
+      cleanWs()
+    }
+  }
+}
