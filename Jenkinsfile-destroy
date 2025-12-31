@@ -51,7 +51,7 @@ You must type DESTROY in the CONFIRM_DESTROY parameter.
     }
 
     /***********************
-     * AUTH
+     * AUTHENTICATE GCP
      ***********************/
     stage('Authenticate to GCP') {
       steps {
@@ -131,17 +131,32 @@ You must type DESTROY in the CONFIRM_DESTROY parameter.
       steps {
         sh """
           set +e
-          echo "Deleting images from Artifact Registry..."
+          echo "Cleaning Artifact Registry images safely..."
 
           IMAGE_PATH="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}"
 
-          for DIGEST in \$(gcloud artifacts docker images list \$IMAGE_PATH \
-            --format='value(DIGEST)'); do
-            echo "Deleting image digest \$DIGEST"
-            gcloud artifacts docker images delete \
-              \$IMAGE_PATH@\$DIGEST \
-              --quiet
-          done
+          echo "Step 1: Deleting all tags..."
+          gcloud artifacts docker tags list \$IMAGE_PATH \
+            --format="value(TAG)" 2>/dev/null | while read TAG; do
+              if [ -n "\$TAG" ]; then
+                echo "Deleting tag \$TAG"
+                gcloud artifacts docker tags delete \$TAG --quiet
+              fi
+            done
+
+          echo "Step 2: Deleting untagged digests..."
+          gcloud artifacts docker images list \$IMAGE_PATH \
+            --filter="NOT tags:*" \
+            --format="value(DIGEST)" 2>/dev/null | while read DIGEST; do
+              if [ -n "\$DIGEST" ]; then
+                echo "Deleting digest \$DIGEST"
+                gcloud artifacts docker images delete \
+                  \$IMAGE_PATH@\$DIGEST \
+                  --quiet
+              fi
+            done
+
+          echo "Artifact Registry cleanup completed"
         """
       }
     }
