@@ -1,6 +1,20 @@
 pipeline {
   agent any
 
+  /***********************
+   * PARAMETERS
+   ***********************/
+  parameters {
+    booleanParam(
+      name: 'CREATE_CLUSTER',
+      defaultValue: true,
+      description: 'Create GKE cluster if it does not exist'
+    )
+  }
+
+  /***********************
+   * ENVIRONMENT
+   ***********************/
   environment {
     PROJECT_ID    = "curser-project"
     REGION        = "us-central1"
@@ -15,12 +29,57 @@ pipeline {
 
   stages {
 
+    /***********************
+     * CHECKOUT
+     ***********************/
     stage('Checkout App Repo') {
       steps {
         checkout scm
       }
     }
 
+    /***********************
+     * AUTH + CLUSTER CREATE
+     ***********************/
+    stage('Create GKE Cluster (If Needed)') {
+      when {
+        expression { return params.CREATE_CLUSTER }
+      }
+      steps {
+        withCredentials([
+          file(credentialsId: 'GCP_SA_KEY', variable: 'GCP_KEY_FILE')
+        ]) {
+          sh """
+            set -e
+
+            echo "Authenticating to GCP..."
+            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
+            gcloud config set project ${PROJECT_ID}
+
+            echo "Checking if GKE cluster exists..."
+            if gcloud container clusters describe ${CLUSTER} \
+              --region ${REGION} \
+              --project ${PROJECT_ID} >/dev/null 2>&1; then
+              echo "✅ GKE cluster already exists"
+            else
+              echo "🚀 Creating GKE cluster ${CLUSTER}..."
+
+              gcloud container clusters create ${CLUSTER} \
+                --region ${REGION} \
+                --num-nodes 2 \
+                --machine-type e2-medium \
+                --project ${PROJECT_ID}
+
+              echo "✅ GKE cluster created"
+            fi
+          """
+        }
+      }
+    }
+
+    /***********************
+     * IMAGE TAG
+     ***********************/
     stage('Generate Image Tag') {
       steps {
         script {
@@ -35,6 +94,9 @@ pipeline {
       }
     }
 
+    /***********************
+     * BUILD & PUSH
+     ***********************/
     stage('Build & Push Image') {
       steps {
         script {
@@ -65,6 +127,9 @@ pipeline {
       }
     }
 
+    /***********************
+     * GITOPS UPDATE
+     ***********************/
     stage('Update Helm Repo Image Tag (GitOps)') {
       steps {
         withCredentials([
@@ -73,13 +138,11 @@ pipeline {
           sh """
             set -e
 
-            echo "Cloning Helm repo..."
             rm -rf ${HELM_REPO_DIR}
             git clone https://x-access-token:\$GITHUB_TOKEN@github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git ${HELM_REPO_DIR}
 
             cd ${HELM_REPO_DIR}/${HELM_CHART}
 
-            echo "Updating values.yaml..."
             sed -i 's|^  repository:.*|  repository: ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}|' values.yaml
             sed -i 's|^  tag:.*|  tag: ${IMAGE_TAG}|' values.yaml
 
@@ -87,19 +150,16 @@ pipeline {
             git config user.email "jenkins@ci.local"
 
             git add values.yaml
-
-            if git diff --cached --quiet; then
-              echo "No changes to commit"
-              exit 0
-            fi
-
-            git commit -m "ci: update image tag to ${IMAGE_TAG}"
+            git commit -m "ci: update image tag to ${IMAGE_TAG}" || exit 0
             git push origin main
           """
         }
       }
     }
 
+    /***********************
+     * DEPLOY
+     ***********************/
     stage('Deploy using Helm') {
       steps {
         withCredentials([
@@ -108,16 +168,13 @@ pipeline {
           sh """
             set -e
 
-            echo "Authenticating to GCP..."
             gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
             gcloud config set project ${PROJECT_ID}
 
-            echo "Getting GKE credentials..."
             gcloud container clusters get-credentials ${CLUSTER} \
               --region ${REGION} \
               --project ${PROJECT_ID}
 
-            echo "Deploying using Helm with explicit image tag..."
             helm upgrade --install myapp ${HELM_REPO_DIR}/${HELM_CHART} \
               --set image.repository=${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME} \
               --set image.tag=${IMAGE_TAG}
@@ -127,6 +184,9 @@ pipeline {
     }
   }
 
+  /***********************
+   * POST
+   ***********************/
   post {
     success {
       echo "✅ Pipeline completed successfully"
