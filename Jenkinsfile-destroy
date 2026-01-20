@@ -10,6 +10,11 @@ pipeline {
       defaultValue: false,
       description: 'Delete images from Artifact Registry'
     )
+    booleanParam(
+      name: 'DELETE_CLUSTER',
+      defaultValue: false,
+      description: 'Delete the GKE cluster (IRREVERSIBLE)'
+    )
     string(
       name: 'CONFIRM_DESTROY',
       defaultValue: '',
@@ -91,7 +96,7 @@ You must type DESTROY in the CONFIRM_DESTROY parameter.
         sh """
           set +e
           echo "Checking Helm release..."
-          helm status ${RELEASE_NAME} -n ${NAMESPACE}
+          helm status ${RELEASE_NAME} -n ${NAMESPACE} >/dev/null 2>&1
 
           if [ \$? -eq 0 ]; then
             echo "Uninstalling Helm release ${RELEASE_NAME}..."
@@ -130,33 +135,53 @@ You must type DESTROY in the CONFIRM_DESTROY parameter.
       }
       steps {
         sh """
-          set +e
-          echo "Cleaning Artifact Registry images safely..."
+          set -e
+          echo "Cleaning Artifact Registry images..."
 
           IMAGE_PATH="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}"
 
           echo "Step 1: Deleting all tags..."
-          gcloud artifacts docker tags list \$IMAGE_PATH \
-            --format="value(TAG)" 2>/dev/null | while read TAG; do
+          gcloud artifacts docker tags list "\$IMAGE_PATH" \
+            --format="value(TAG)" | while read TAG; do
               if [ -n "\$TAG" ]; then
                 echo "Deleting tag \$TAG"
-                gcloud artifacts docker tags delete \$TAG --quiet
+                gcloud artifacts docker tags delete "\$IMAGE_PATH:\$TAG" --quiet
               fi
             done
 
           echo "Step 2: Deleting untagged digests..."
-          gcloud artifacts docker images list \$IMAGE_PATH \
+          gcloud artifacts docker images list "\$IMAGE_PATH" \
             --filter="NOT tags:*" \
-            --format="value(DIGEST)" 2>/dev/null | while read DIGEST; do
+            --format="value(DIGEST)" | while read DIGEST; do
               if [ -n "\$DIGEST" ]; then
                 echo "Deleting digest \$DIGEST"
-                gcloud artifacts docker images delete \
-                  \$IMAGE_PATH@\$DIGEST \
-                  --quiet
+                gcloud artifacts docker images delete "\$IMAGE_PATH@\${DIGEST}" --quiet
               fi
             done
 
           echo "Artifact Registry cleanup completed"
+        """
+      }
+    }
+
+    /***********************
+     * DELETE GKE CLUSTER (FINAL STAGE)
+     ***********************/
+    stage('Delete GKE Cluster') {
+      when {
+        expression { return params.DELETE_CLUSTER }
+      }
+      steps {
+        sh """
+          set -e
+          echo "⚠️  Deleting GKE cluster ${CLUSTER} (this is irreversible)..."
+
+          gcloud container clusters delete ${CLUSTER} \
+            --region ${REGION} \
+            --project ${PROJECT_ID} \
+            --quiet
+
+          echo "✅ GKE cluster deleted successfully"
         """
       }
     }
