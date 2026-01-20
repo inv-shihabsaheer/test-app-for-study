@@ -2,13 +2,13 @@ pipeline {
   agent any
 
   /***********************
-   * PARAMETERS
+   * PARAMETERS (USER SELECTS)
    ***********************/
   parameters {
     booleanParam(
       name: 'CREATE_CLUSTER',
-      defaultValue: true,
-      description: 'Create GKE cluster if it does not exist'
+      defaultValue: false,
+      description: 'Create GKE Autopilot cluster if it does not exist'
     )
   }
 
@@ -29,9 +29,6 @@ pipeline {
 
   stages {
 
-    /***********************
-     * CHECKOUT
-     ***********************/
     stage('Checkout App Repo') {
       steps {
         checkout scm
@@ -39,11 +36,13 @@ pipeline {
     }
 
     /***********************
-     * AUTH + CLUSTER CREATE
+     * AUTOPILOT CLUSTER (OPTIONAL)
      ***********************/
-    stage('Create GKE Cluster (If Needed)') {
+    stage('Create GKE Autopilot Cluster (Optional)') {
       when {
-        expression { return params.CREATE_CLUSTER }
+        expression {
+          return params.CREATE_CLUSTER == true
+        }
       }
       steps {
         withCredentials([
@@ -52,34 +51,29 @@ pipeline {
           sh """
             set -e
 
-            echo "Authenticating to GCP..."
             gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
             gcloud config set project ${PROJECT_ID}
 
-            echo "Checking if GKE cluster exists..."
+            echo "CREATE_CLUSTER=${params.CREATE_CLUSTER}"
+
             if gcloud container clusters describe ${CLUSTER} \
               --region ${REGION} \
               --project ${PROJECT_ID} >/dev/null 2>&1; then
               echo "✅ GKE cluster already exists"
             else
-              echo "🚀 Creating GKE cluster ${CLUSTER}..."
+              echo "🚀 Creating GKE Autopilot cluster..."
 
-              gcloud container clusters create ${CLUSTER} \
+              gcloud container clusters create-auto ${CLUSTER} \
                 --region ${REGION} \
-                --num-nodes 2 \
-                --machine-type e2-medium \
                 --project ${PROJECT_ID}
 
-              echo "✅ GKE cluster created"
+              echo "✅ GKE Autopilot cluster created"
             fi
           """
         }
       }
     }
 
-    /***********************
-     * IMAGE TAG
-     ***********************/
     stage('Generate Image Tag') {
       steps {
         script {
@@ -87,16 +81,11 @@ pipeline {
             script: 'git rev-parse --short HEAD',
             returnStdout: true
           ).trim()
-
           env.IMAGE_TAG = "${sha}-${env.BUILD_NUMBER}"
-          echo "Image tag: ${env.IMAGE_TAG}"
         }
       }
     }
 
-    /***********************
-     * BUILD & PUSH
-     ***********************/
     stage('Build & Push Image') {
       steps {
         script {
@@ -108,18 +97,10 @@ pipeline {
           ]) {
             sh """
               set -e
-
-              echo "Authenticating to GCP..."
               gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
               gcloud config set project ${PROJECT_ID}
-
-              echo "Configuring Docker auth..."
               gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
-
-              echo "Building image..."
-              docker build --no-cache -t ${IMAGE_URI} .
-
-              echo "Pushing image..."
+              docker build -t ${IMAGE_URI} .
               docker push ${IMAGE_URI}
             """
           }
@@ -127,9 +108,6 @@ pipeline {
       }
     }
 
-    /***********************
-     * GITOPS UPDATE
-     ***********************/
     stage('Update Helm Repo Image Tag (GitOps)') {
       steps {
         withCredentials([
@@ -137,10 +115,8 @@ pipeline {
         ]) {
           sh """
             set -e
-
             rm -rf ${HELM_REPO_DIR}
             git clone https://x-access-token:\$GITHUB_TOKEN@github.com/inv-shihabsaheer/test-app-for-study-helm-chart.git ${HELM_REPO_DIR}
-
             cd ${HELM_REPO_DIR}/${HELM_CHART}
 
             sed -i 's|^  repository:.*|  repository: ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}|' values.yaml
@@ -150,16 +126,13 @@ pipeline {
             git config user.email "jenkins@ci.local"
 
             git add values.yaml
-            git commit -m "ci: update image tag to ${IMAGE_TAG}" || exit 0
+            git commit -m "ci: update image tag to ${IMAGE_TAG}" || true
             git push origin main
           """
         }
       }
     }
 
-    /***********************
-     * DEPLOY
-     ***********************/
     stage('Deploy using Helm') {
       steps {
         withCredentials([
@@ -167,10 +140,8 @@ pipeline {
         ]) {
           sh """
             set -e
-
             gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
             gcloud config set project ${PROJECT_ID}
-
             gcloud container clusters get-credentials ${CLUSTER} \
               --region ${REGION} \
               --project ${PROJECT_ID}
@@ -184,18 +155,9 @@ pipeline {
     }
   }
 
-  /***********************
-   * POST
-   ***********************/
   post {
-    success {
-      echo "✅ Pipeline completed successfully"
-    }
-    failure {
-      echo "❌ Pipeline failed"
-    }
-    always {
-      cleanWs()
-    }
+    success { echo "✅ Pipeline completed successfully" }
+    failure { echo "❌ Pipeline failed" }
+    always  { cleanWs() }
   }
 }
